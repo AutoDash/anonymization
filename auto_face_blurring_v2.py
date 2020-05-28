@@ -7,7 +7,7 @@ import argparse
 import sys
 import time
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import cv2
 import os
 
@@ -15,7 +15,7 @@ sys.path.append("..")
 
 # from utils import label_map_util
 
-SCORE_THRESH = 0.35
+SCORE_THRESH = 0.15
 ENLARGE_FACTOR = 0.1
 __version__ = '0.1'
 
@@ -81,6 +81,33 @@ def get_bboxes(boxes_det, scores_det, classes_det, image, score_thres=0.5, enlar
 
     return boxes_det, scores_det, classes_det
 
+def anonymize_face_pixelate(image, blocks=3):
+	# divide the input image into NxN blocks
+	(h, w) = image.shape[:2]
+	xSteps = np.linspace(0, w, blocks + 1, dtype="int")
+	ySteps = np.linspace(0, h, blocks + 1, dtype="int")
+
+	# loop over the blocks in both the x and y direction
+	for i in range(1, len(ySteps)):
+		for j in range(1, len(xSteps)):
+			# compute the starting and ending (x, y)-coordinates
+			# for the current block
+			startX = xSteps[j - 1]
+			startY = ySteps[i - 1]
+			endX = xSteps[j]
+			endY = ySteps[i]
+
+			# extract the ROI using NumPy array slicing, compute the
+			# mean of the ROI, and then draw a rectangle with the
+			# mean RGB values over the ROI in the original image
+			roi = image[startY:endY, startX:endX]
+			(B, G, R) = [int(x) for x in cv2.mean(roi)[:3]]
+			cv2.rectangle(image, (startX, startY), (endX, endY),
+				(B, G, R), -1)
+
+	# return the pixelated blurred image
+	return image
+
 
 def main():
     args = get_arguments()
@@ -94,19 +121,11 @@ def main():
     # Path to frozen detection graph. This is the actual model that is used for the object detection.
     path_to_model = './model/frozen_inference_graph_face.pb'
 
-    # List of the strings that is used to add correct label for each box.
-    # path_to_labels = './model/face_label_map.pbtxt'
-    #
-    # num_classes = 2
-
-    # label_map = label_map_util.load_labelmap(PATH_TO_LABELS)
-    # categories = label_map_util.convert_label_map_to_categories(label_map, max_num_classes=NUM_CLASSES,
-    #                                                             use_display_name=True)
-    # category_index = label_map_util.create_category_index(categories)
-
     cap = cv2.VideoCapture(video_input)
     out = None
-    fourcc = cv2.VideoWriter_fourcc(*'MP43')
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+
+    tf.disable_v2_behavior()
 
     detection_graph = tf.Graph()
     with detection_graph.as_default():
@@ -120,11 +139,9 @@ def main():
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         with tf.Session(graph=detection_graph, config=config) as sess:
-            # frame_num = 1490
             start_time = time.time()
             count = 0
             while True:
-                # frame_num -= 1
                 ret, frame = cap.read()
                 if ret == 0:
                     break
@@ -138,7 +155,7 @@ def main():
 
                 image_np = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-                # the array based representation of the image will be used later in order to prepare the
+                # The array based representation of the image will be used later in order to prepare the
                 # result image with boxes and labels on it.
                 # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
                 image_np_expanded = np.expand_dims(image_np, axis=0)
@@ -162,13 +179,11 @@ def main():
                     x2 = int(boxes[i][2])
                     y2 = int(boxes[i][3])
 
-                    # if x1 == 0 or h == 0:
-                    #     continue
-
                     sub_face = frame[y1:y2, x1:x2]
 
-                    # apply a gaussian blur on this new recangle image
-                    sub_face = cv2.GaussianBlur(sub_face, (23, 23), 30)
+                    # apply a pixelated blur on this new recangle image
+                    num_blocks = max(int(max(abs(y1-y2), abs(x1-x2))*0.03), 3)
+                    sub_face = anonymize_face_pixelate(sub_face, num_blocks)
 
                     # merge this blurry rectangle to our final image
                     frame[y1:y2, x1:x2] = sub_face
