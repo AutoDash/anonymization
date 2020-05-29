@@ -16,8 +16,13 @@ sys.path.append("..")
 DEFAULT_INPUT_PATH = './dataset/input/'
 DEFAULT_OUTPUT_PATH = './dataset/output/'
 ACCEPTED_FILE_EXTENSION = ".mp4"
-SCORE_THRESH = "0.15"
-ENLARGE_FACTOR = 0.1
+
+DEFAULT_SCORE_THRESH = "0.15"
+DEFAULT_ENLARGE_FACTOR = 0.1
+DEFAULT_SKIP_FRAMES = 0
+
+DEFAULT_NUM_BLOCKS = 3
+BLOCK_SCALING_FACTOR = 0.03
 
 __version__ = '1.0'
 
@@ -37,22 +42,27 @@ def get_arguments():
     parser.add_argument('--output', default=DEFAULT_OUTPUT_PATH,
                     help="The relative path to the output directory to be used for storing the processed videos. "
                          "Default: {}".format(DEFAULT_OUTPUT_PATH))
-    parser.add_argument("--score-thresholds", default=SCORE_THRESH,
+    parser.add_argument("--score-thresholds", default=DEFAULT_SCORE_THRESH,
                     help="A comma separated list of confidence score thresholds (eg. 0.05,0.10,0.15). For every input video, "
                             "a variant output file for each threshold is provided. The threshold for each variant is used to "
                             "determine which bounding boxes from the model prediction is accepted (every bounding box that has "
                             "a confidence score higher than this threshold). "
-                            "Default: {}".format(SCORE_THRESH))
-    parser.add_argument("--enlarge-factor", type=float, default=ENLARGE_FACTOR,
+                            "Default: {}".format(DEFAULT_SCORE_THRESH))
+    parser.add_argument("--enlarge-factor", type=float, default=DEFAULT_ENLARGE_FACTOR,
                         help="The factor by which the detected facial bounding boxes are enlarged before "
                              "applying the blurring mask. "
-                             "Default: {}".format(ENLARGE_FACTOR))
+                             "Default: {}".format(DEFAULT_ENLARGE_FACTOR))
+    parser.add_argument("--skip-frames", type=float, default=DEFAULT_SKIP_FRAMES,
+                        help="The number of frames to skip after performing the ML prediction before predicting again. "
+                             "This will help speed up the video processing. For every frame that is skipped, the blurring mask for the last calculated "
+                             "bounding boxes will remain."
+                             "Default: {}".format(DEFAULT_SKIP_FRAMES))
 
     args = parser.parse_args()
 
     return args
 
-def get_bounding_boxes(boxes_det, scores_det, classes_det, image, score_thres=0.5, enlarge_factor=0.1):
+def get_bounding_boxes(boxes_det, scores_det, classes_det, image, score_thres, enlarge_factor):
     boxes_det = np.squeeze(boxes_det)
     scores_det = np.squeeze(scores_det)
     classes_det = np.squeeze(classes_det)
@@ -109,13 +119,24 @@ def anonymize_face_pixelate(image, blocks=3):
 	# return the pixelated blurred image
 	return image
 
-def process_video(input_file, output_path, score_threshold, enlarge_factor):
+def calculate_num_blocks_for_blur(x1, y1, x2, y2):
+    return max(int(max(abs(y1-y2), abs(x1-x2))*BLOCK_SCALING_FACTOR), DEFAULT_NUM_BLOCKS)
+
+def create_and_merge_blur_mask(frame, x1, y1, x2, y2):
+    face = frame[y1:y2, x1:x2]
+    # Apply a pixelated blur on the face
+    face = anonymize_face_pixelate(face, calculate_num_blocks_for_blur(x1, y1, x2, y2))
+    # Merge the blurred face to our final image
+    frame[y1:y2, x1:x2] = face
+    return frame
+
+def process_video(input_file, output_path, score_threshold, enlarge_factor, skip_frames):
     print("Processing file: {} with confidence threshold {:3.2f}".format(input_file, score_threshold))
 
     split_name = os.path.splitext(os.path.basename(input_file))
     input_file_name = split_name[0]
     input_file_extension = split_name[1]
-    output_file_name = os.path.join(output_path, '{}_blurred_auto_{:3.2f}{}'.format(input_file_name, score_threshold, input_file_extension))
+    output_file_name = os.path.join(output_path, '{}_blurred_auto_conf_{:3.2f}_skip{:d}{}'.format(input_file_name, score_threshold, skip_frames, input_file_extension))
 
     # If output directory doesn't exist, create it
     if not os.path.isdir(output_path):
@@ -149,6 +170,7 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor):
         config.gpu_options.allow_growth = True
         with tf.Session(graph=detection_graph, config=config) as sess:
             count = 0
+            last_bounding_boxes = list()
             while True:
                 ret, frame = cap.read()
                 if ret == 0:
@@ -160,6 +182,17 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor):
                 if out is None:
                     [h, w] = frame.shape[:2]
                     out = cv2.VideoWriter(output_file_name, fourcc, 25.0, (w, h))
+
+                # Skip prediction on current frame if within skipping window and apply last calculated blurring masks (list of 
+                # masks for each face)
+                if count % (skip_frames + 1) != 0:
+                    for i in range(len(last_bounding_boxes)):
+                        bb = last_bounding_boxes[i]
+                        frame = create_and_merge_blur_mask(frame, bb[0], bb[1], bb[2], bb[3])
+                    out.write(frame)
+                    continue
+                else:
+                    last_bounding_boxes.clear()
 
                 image_np = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -175,7 +208,7 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor):
                 scores = detection_graph.get_tensor_by_name('detection_scores:0')
                 classes = detection_graph.get_tensor_by_name('detection_classes:0')
                 num_detections = detection_graph.get_tensor_by_name('num_detections:0')
-                # Actual detection.
+                # Actual detection
                 (boxes, scores, classes, num_detections) = sess.run(
                     [boxes, scores, classes, num_detections],
                     feed_dict={image_tensor: image_np_expanded})
@@ -186,15 +219,9 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor):
                     y1 = int(boxes[i][1])
                     x2 = int(boxes[i][2])
                     y2 = int(boxes[i][3])
-
-                    sub_face = frame[y1:y2, x1:x2]
-
-                    # apply a pixelated blur on this new recangle image
-                    num_blocks = max(int(max(abs(y1-y2), abs(x1-x2))*0.03), 3)
-                    sub_face = anonymize_face_pixelate(sub_face, num_blocks)
-
-                    # merge this blurry rectangle to our final image
-                    frame[y1:y2, x1:x2] = sub_face
+                    
+                    last_bounding_boxes.append([x1, y1, x2, y2])
+                    frame = create_and_merge_blur_mask(frame, x1, y1, x2, y2)
 
                 out.write(frame)
             elapsed_time = time.time() - start_time
@@ -202,6 +229,7 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor):
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             print('Blurring video finished in {:.2f}s with fps {:2.4f} for video with dimensions {}x{}'.format(elapsed_time, fps, w, h))
+            print("Output saved at {}".format(output_file_name))
 
             cap.release()
             out.release()
@@ -212,11 +240,12 @@ def main():
     output_path = args.output
     score_thresholds = args.score_thresholds.split(",")
     enlarge_factor = args.enlarge_factor
+    skip_frames = int(args.skip_frames)
 
     if os.path.isfile(input_path):
         if input_path.endswith(ACCEPTED_FILE_EXTENSION):
             for threshold in score_thresholds:
-                process_video(input_path, output_path, float(threshold), enlarge_factor)
+                process_video(input_path, output_path, float(threshold), enlarge_factor, skip_frames)
             exit(0)
         else:
             print('Not a valid file.')
@@ -228,14 +257,16 @@ def main():
         exit(1)
 
     files_processed = 0
+    files_produced = 0
 
     for file in os.listdir(input_path):
         if file.endswith(ACCEPTED_FILE_EXTENSION):
             for threshold in score_thresholds:
-                process_video(os.path.join(input_path, file), output_path, float(threshold), enlarge_factor)
-                files_processed += 1
+                process_video(os.path.join(input_path, file), output_path, float(threshold), enlarge_factor, skip_frames)
+                files_produced += 1
+            files_processed +=1
     
-    print("{} files were processed.".format(files_processed))
+    print("{} files were processed and {} were produced.".format(files_processed, files_produced))
 
 if __name__ == '__main__':
     main()
