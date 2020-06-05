@@ -36,7 +36,7 @@ def get_arguments():
         prog='Blur faces in video using openCV',
         description="This module automatically applies a blurring mask to faces from a given input set of videos using a MobileNet SSD, " 
         "an efficient convolutional neural network based model, for facial detection.",
-        epilog="Developed by: AutoDash (TODO: give credit to used sources)")
+        epilog="Developed by: AutoDash")
     parser.add_argument('-v', '--version', action='version', version='%(prog)s {}'.format(__version__))
     parser.add_argument('--input', default=DEFAULT_INPUT_PATH,
                     help="The relative path to the input video dataset to be processed. Can be a directory or a single file. "
@@ -63,36 +63,6 @@ def get_arguments():
     args = parser.parse_args()
 
     return args
-
-def get_bounding_boxes(boxes_det, scores_det, classes_det, image, score_thres, enlarge_factor):
-    boxes_det = np.squeeze(boxes_det)
-    scores_det = np.squeeze(scores_det)
-    classes_det = np.squeeze(classes_det)
-    h, w, _ = image.shape
-    res = np.where(scores_det > score_thres)
-    if not res[0].shape[0]:
-        boxes_det = np.zeros((0, 4))
-        scores_det = np.zeros((0, 1))
-        classes_det = np.zeros((0, 1))
-        return boxes_det, scores_det, classes_det
-    n = np.where(scores_det > score_thres)[0][-1] + 1
-
-    # this creates an array with just enough rows as object with score above the threshold
-    # format: absolute x, y, x, y
-    boxes_det = np.array([boxes_det[:n, 1] * w, boxes_det[:n, 0] * h, boxes_det[:n, 3] * w, boxes_det[:n, 2] * h]).T
-    classes_det = classes_det[:n]
-    scores_det = scores_det[:n]
-
-    # enlarge ROI a bit to make the blurring more effective
-    for i in range(boxes_det.shape[0]):
-        dx = int(enlarge_factor * (boxes_det[i, 2] - boxes_det[i, 0]))
-        dy = int(enlarge_factor * (boxes_det[i, 3] - boxes_det[i, 1]))
-        boxes_det[i, 0] = int(boxes_det[i, 0] - dx) if int(boxes_det[i, 0] - dx) > 0 else 0
-        boxes_det[i, 1] = int(boxes_det[i, 1] - dy) if int(boxes_det[i, 1] - dy) > 0 else 0
-        boxes_det[i, 2] = int(boxes_det[i, 2] + dx) if int(boxes_det[i, 2] + dx) < w else w
-        boxes_det[i, 3] = int(boxes_det[i, 3] + dy) if int(boxes_det[i, 3] + dy) < h else h
-
-    return boxes_det, scores_det, classes_det
 
 def anonymize_face_pixelate(image, blocks=3):
 	# divide the input image into NxN blocks
