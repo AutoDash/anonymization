@@ -14,9 +14,9 @@ import tensorflow.compat.v1 as tf
 import cv2
 import os
 
-import file_util
-import blurring_util
-import detection_util
+import util.blurring_util as blurring_util
+import util.detection_util as detection_util
+import util.video_file_util as video_file_util
 
 DEFAULT_INPUT_PATH = './dataset/input/'
 DEFAULT_OUTPUT_PATH = './dataset/output/'
@@ -190,6 +190,7 @@ def main():
 
     start_time = time.time()
 
+    # Validate input if it's a single file
     if os.path.isfile(input_path):
         if input_path.endswith(ACCEPTED_FILE_EXTENSION):
             for threshold in score_thresholds:
