@@ -34,7 +34,8 @@ def get_arguments():
     """
     parser = argparse.ArgumentParser(
         prog='Blur faces in video using openCV',
-        description='This module automatically applies a blurring mask to faces from a given input set of videos using a convolutional neural network.',
+        description="This module automatically applies a blurring mask to faces from a given input set of videos using a MobileNet SSD, " 
+        "an efficient convolutional neural network based model, for facial detection.",
         epilog="Developed by: AutoDash (TODO: give credit to used sources)")
     parser.add_argument('-v', '--version', action='version', version='%(prog)s {}'.format(__version__))
     parser.add_argument('--input', default=DEFAULT_INPUT_PATH,
