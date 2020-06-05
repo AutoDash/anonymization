@@ -1,7 +1,9 @@
-# coding=utf-8
-# combination of face blurring approach with opencv tracking
-# working for multiple bboxes and also saves to disk
-# examples found in https://www.learnopencv.com/object-tracking-using-opencv-cpp-python/
+#!/usr/bin/python
+# Manual face blurring tool.
+#
+# -*- coding: utf-8 -*-
+# pylint: disable=C0103
+# pylint: disable=E1101
 import argparse
 from random import randint
 

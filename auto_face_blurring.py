@@ -1,18 +1,22 @@
 #!/usr/bin/python
+# This module automatically applies a blurring mask to faces from a given input set of videos using a MobileNet SSD
+# an efficient convolutional neural network based model, for facial detection.
+#
 # Facial detection model obtained from (and code adapted from): https://github.com/yeephycho/tensorflow-face-detection
 # -*- coding: utf-8 -*-
 # pylint: disable=C0103
 # pylint: disable=E1101
 from pymediainfo import MediaInfo
 import argparse
-import sys
 import time
 import numpy as np
 import tensorflow.compat.v1 as tf
 import cv2
 import os
 
-sys.path.append("..")
+import file_util
+import blurring_util
+import detection_util
 
 DEFAULT_INPUT_PATH = './dataset/input/'
 DEFAULT_OUTPUT_PATH = './dataset/output/'
@@ -63,44 +67,6 @@ def get_arguments():
     args = parser.parse_args()
 
     return args
-
-def anonymize_face_pixelate(image, blocks=3):
-	# divide the input image into NxN blocks
-	(h, w) = image.shape[:2]
-	xSteps = np.linspace(0, w, blocks + 1, dtype="int")
-	ySteps = np.linspace(0, h, blocks + 1, dtype="int")
-
-	# loop over the blocks in both the x and y direction
-	for i in range(1, len(ySteps)):
-		for j in range(1, len(xSteps)):
-			# compute the starting and ending (x, y)-coordinates
-			# for the current block
-			startX = xSteps[j - 1]
-			startY = ySteps[i - 1]
-			endX = xSteps[j]
-			endY = ySteps[i]
-
-			# extract the ROI using NumPy array slicing, compute the
-			# mean of the ROI, and then draw a rectangle with the
-			# mean RGB values over the ROI in the original image
-			roi = image[startY:endY, startX:endX]
-			(B, G, R) = [int(x) for x in cv2.mean(roi)[:3]]
-			cv2.rectangle(image, (startX, startY), (endX, endY),
-				(B, G, R), -1)
-
-	# return the pixelated blurred image
-	return image
-
-def calculate_num_blocks_for_blur(x1, y1, x2, y2):
-    return max(int(max(abs(y1-y2), abs(x1-x2))*BLOCK_SCALING_FACTOR), DEFAULT_NUM_BLOCKS)
-
-def create_and_merge_blur_mask(frame, x1, y1, x2, y2):
-    face = frame[y1:y2, x1:x2]
-    # Apply a pixelated blur on the face
-    face = anonymize_face_pixelate(face, calculate_num_blocks_for_blur(x1, y1, x2, y2))
-    # Merge the blurred face to our final image
-    frame[y1:y2, x1:x2] = face
-    return frame
 
 def process_video(input_file, output_path, score_threshold, enlarge_factor, skip_frames):
     print("Processing file: {} with confidence threshold {:3.2f}".format(input_file, score_threshold))
@@ -161,7 +127,8 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor, skip
                 if count % (skip_frames + 1) != 0:
                     for i in range(len(last_bounding_boxes)):
                         bb = last_bounding_boxes[i]
-                        frame = create_and_merge_blur_mask(frame, bb[0], bb[1], bb[2], bb[3])
+                        frame = blurring_util.create_and_merge_pixelated_blur_mask(frame, bb[0], bb[1], bb[2], bb[3], 
+                            BLOCK_SCALING_FACTOR, DEFAULT_NUM_BLOCKS)
                     out.write(frame)
                     continue
                 else:
@@ -185,8 +152,8 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor, skip
                 (boxes, scores, classes, num_detections) = sess.run(
                     [boxes, scores, classes, num_detections],
                     feed_dict={image_tensor: image_np_expanded})
-                boxes, scores, classes = get_bounding_boxes(boxes, scores, classes, frame, score_thres=score_threshold,
-                                                    enlarge_factor=enlarge_factor)
+                boxes, scores, classes = detection_util.get_bounding_boxes(boxes, scores, classes, frame, 
+                    score_thres=score_threshold, enlarge_factor=enlarge_factor)
                 for i in range(len(boxes)):
                     x1 = int(boxes[i][0])
                     y1 = int(boxes[i][1])
@@ -194,7 +161,8 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor, skip
                     y2 = int(boxes[i][3])
                     
                     last_bounding_boxes.append([x1, y1, x2, y2])
-                    frame = create_and_merge_blur_mask(frame, x1, y1, x2, y2)
+                    frame = blurring_util.create_and_merge_pixelated_blur_mask(frame, x1, y1, x2, y2, 
+                        BLOCK_SCALING_FACTOR, DEFAULT_NUM_BLOCKS)
 
                 out.write(frame)
             elapsed_time = time.time() - start_time

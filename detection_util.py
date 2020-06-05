@@ -1,5 +1,6 @@
 #!/usr/bin/python
-# Helper functions for working with the detection based models for anonymization
+# Helper functions for working with the detection models used for anonymization.
+
 # -*- coding: utf-8 -*-
 # pylint: disable=C0103
 # pylint: disable=E1101
