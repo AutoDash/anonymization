@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# tensorflow code has been taken from: https://github.com/yeephycho/tensorflow-face-detection
+# Facial detection model obtained from (and code adapted from): https://github.com/yeephycho/tensorflow-face-detection
 # -*- coding: utf-8 -*-
 # pylint: disable=C0103
 # pylint: disable=E1101
