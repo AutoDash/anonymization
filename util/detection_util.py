@@ -5,7 +5,32 @@
 # pylint: disable=C0103
 # pylint: disable=E1101
 import numpy as np
+import tensorflow as tf
 
+# Load and create a detection graph from a given path
+def load_detection_graph(model_path):
+    detection_graph = tf.Graph()
+    with detection_graph.as_default():
+        # There is no idiomatic way to use a frozen graph in TensorFlow 2, so we use the compat library. 
+        od_graph_def = tf.compat.v1.GraphDef()
+        with tf.io.gfile.GFile(model_path, 'rb') as fid:
+            serialized_graph = fid.read()
+            od_graph_def.ParseFromString(serialized_graph)
+            tf.import_graph_def(od_graph_def, name='')
+    return detection_graph
+
+# Allow memory to grow as needed
+def set_memory_growth(detection_graph):
+    with detection_graph.as_default():
+        gpus = tf.config.experimental.list_physical_devices('GPU')
+        if gpus:
+            try:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+            except RuntimeError as e:
+                print(e)
+
+# Get the bounding boxes from model prediction results
 def get_bounding_boxes(boxes_det, scores_det, image, score_thres, enlarge_factor):
     boxes_det = np.squeeze(boxes_det)
     scores_det = np.squeeze(scores_det)

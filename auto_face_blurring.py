@@ -10,12 +10,10 @@ import argparse
 import time
 import numpy as np
 import tensorflow as tf
-import cv2
 import os
 
-import util.blurring_util as blurring_util
-import util.detection_util as detection_util
 import util.video_file_util as video_file_util
+import util.detection_util as detection_util
 
 DEFAULT_INPUT_PATH = './dataset/input/'
 DEFAULT_OUTPUT_PATH = './dataset/output/'
@@ -71,119 +69,39 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor, skip
     # Path to frozen detection graph. This is the actual model that is used for the object detection.
     path_to_model = './model/frozen_inference_graph_face.pb'
 
-    detection_graph = tf.Graph()
-    with detection_graph.as_default():
-        # There is no straightforward way to upgrade from a frozen graph in TensorFlow 2, so
-        # we use the compat library. 
-        od_graph_def = tf.compat.v1.GraphDef()
-        with tf.io.gfile.GFile(path_to_model, 'rb') as fid:
-            serialized_graph = fid.read()
-            od_graph_def.ParseFromString(serialized_graph)
-            tf.import_graph_def(od_graph_def, name='')
+    detection_graph = detection_util.load_detection_graph(path_to_model)
+    detection_util.set_memory_growth(detection_graph)
 
-    with detection_graph.as_default():
-        gpus = tf.config.experimental.list_physical_devices('GPU')
-        if gpus:
-            try:
-                for gpu in gpus:
-                    tf.config.experimental.set_memory_growth(gpu, True)
-            except RuntimeError as e:
-                print(e)
+    # TODO: In TensorFlow 2, Sessions have been deprecated in favor of tf.Functions.
+    # However, with the existing implementation, we'd have to exclusively use Tensor objects
+    # for computation. Currently the benefits of this conversion do not seem to be significant,
+    # so this is left for future work.
+    with tf.compat.v1.Session(graph=detection_graph) as sess:
+        print("Processing file: {} with confidence threshold {:3.2f}".format(input_file, score_threshold))
+        split_name = os.path.splitext(os.path.basename(input_file))
+        input_file_name = split_name[0]
+        input_file_extension = split_name[1]
+        output_file_name = os.path.join(output_path, '{}_blurred_auto_conf_{:3.2f}_skip{:d}{}'.format(input_file_name, 
+            score_threshold, skip_frames, input_file_extension))
 
-        # TODO: In TensorFlow 2, Sessions have been deprecated in favor of tf.Functions.
-        # However, with the existing implementation, we'd have to exclusively use Tensor objects
-        # for computation. Currently the benefits of this conversion do not seem to be significant,
-        # so this is left for future work.
-        with tf.compat.v1.Session(graph=detection_graph) as sess:
-            print("Processing file: {} with confidence threshold {:3.2f}".format(input_file, score_threshold))
-            split_name = os.path.splitext(os.path.basename(input_file))
-            input_file_name = split_name[0]
-            input_file_extension = split_name[1]
-            output_file_name = os.path.join(output_path, '{}_blurred_auto_conf_{:3.2f}_skip{:d}{}'.format(input_file_name, 
-                score_threshold, skip_frames, input_file_extension))
+        start_time = time.time()
 
-            start_time = time.time()
+        # If output directory doesn't exist, create it
+        if not os.path.isdir(output_path):
+            print("Output directory doesn't exist, creating it now.")
+            os.mkdir(output_path)
 
-            # If output directory doesn't exist, create it
-            if not os.path.isdir(output_path):
-                print("Output directory doesn't exist, creating it now.")
-                os.mkdir(output_path)
-            cap = cv2.VideoCapture(input_file)
-            out = None
-            # Specify codec to use when processing the video, eg. mp4v for a .mp4 file
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            count = 0
-            last_bounding_boxes = list()
-            while True:
-                ret, frame = cap.read()
-                if ret == 0:
-                    break
-                count += 1
+        (width, height, video_length) = video_file_util.process_video(input_file, input_file_name, output_file_name,
+            sess, skip_frames, BLOCK_SCALING_FACTOR, DEFAULT_NUM_BLOCKS, detection_graph, score_threshold,
+                enlarge_factor, 'image_tensor:0', 'detection_boxes:0', 'detection_scores:0', 'detection_classes:0')
 
-                if count % 50 == 0:
-                    print('Processing video {}, frame #{}...'.format(input_file_name, count))
-                if out is None:
-                    [h, w] = frame.shape[:2]
-                    out = cv2.VideoWriter(output_file_name, fourcc, 25.0, (w, h))
+        elapsed_time = time.time() - start_time
 
-                # Skip prediction on current frame if within skipping window and apply last calculated 
-                # blurring masks (list of masks for each face)
-                if count % (skip_frames + 1) != 0:
-                    for i in range(len(last_bounding_boxes)):
-                        bb = last_bounding_boxes[i]
-                        frame = blurring_util.create_and_merge_pixelated_blur_mask(frame, bb[0], bb[1], bb[2], bb[3], 
-                            BLOCK_SCALING_FACTOR, DEFAULT_NUM_BLOCKS)
-                    out.write(frame)
-                    continue
-                else:
-                    last_bounding_boxes.clear()
+        proc_ratio = video_file_util.calculate_proc_ratio(elapsed_time, video_length)
 
-                image_np = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-                # The array based representation of the image will be used later in order to prepare the
-                # result image with boxes and labels on it.
-                # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
-                image_np_expanded = np.expand_dims(image_np, axis=0)
-                image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
-                # Each box represents a part of the image where a particular object was detected.
-                boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
-                # Each score represent how level of confidence for each of the objects.
-                # Score is shown on the result image, together with the class label.
-                scores = detection_graph.get_tensor_by_name('detection_scores:0')
-                classes = detection_graph.get_tensor_by_name('detection_classes:0')
-
-                # Actual detection
-                (boxes, scores, classes) = sess.run(
-                    [boxes, scores, classes],
-                    feed_dict={image_tensor: image_np_expanded})
-
-                # Get the final bounding boxes used for blurring
-                boxes, scores = detection_util.get_bounding_boxes(boxes, scores, frame, 
-                    score_thres=score_threshold, enlarge_factor=enlarge_factor)
-
-                for i in range(len(boxes)):
-                    x1 = int(boxes[i][0])
-                    y1 = int(boxes[i][1])
-                    x2 = int(boxes[i][2])
-                    y2 = int(boxes[i][3])
-                    
-                    last_bounding_boxes.append([x1, y1, x2, y2])
-                    frame = blurring_util.create_and_merge_pixelated_blur_mask(frame, x1, y1, x2, y2, 
-                        BLOCK_SCALING_FACTOR, DEFAULT_NUM_BLOCKS)
-
-                out.write(frame)
-            elapsed_time = time.time() - start_time
-
-            # Calculate processing ratio (s processing time/s video)
-            proc_ratio = elapsed_time/video_file_util.get_video_length(input_file)
-            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-            cap.release()
-            out.release()
-            print("Blurring video finished in {:.2f}s with processing ratio (s processing time/s video) {:2.4f} for video with dimensions {}x{}".format(elapsed_time, 
-                proc_ratio, w, h))
-            print("Output saved at {}".format(output_file_name))
+        print("Blurring video finished in {:.2f}s with processing ratio (s processing time/s video) {:2.4f} for video with dimensions {}x{}".format(elapsed_time, 
+            proc_ratio, width, height))
+        print("Output saved at {}".format(output_file_name))
 
 def main():
     args = get_arguments()
