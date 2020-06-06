@@ -6,7 +6,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=C0103
 # pylint: disable=E1101
-from pymediainfo import MediaInfo
 import argparse
 import time
 import numpy as np
@@ -69,28 +68,8 @@ def get_arguments():
     return args
 
 def process_video(input_file, output_path, score_threshold, enlarge_factor, skip_frames):
-    print("Processing file: {} with confidence threshold {:3.2f}".format(input_file, score_threshold))
-
-    split_name = os.path.splitext(os.path.basename(input_file))
-    input_file_name = split_name[0]
-    input_file_extension = split_name[1]
-    output_file_name = os.path.join(output_path, '{}_blurred_auto_conf_{:3.2f}_skip{:d}{}'.format(input_file_name, 
-        score_threshold, skip_frames, input_file_extension))
-
-    # If output directory doesn't exist, create it
-    if not os.path.isdir(output_path):
-        print("Output directory doesn't exist, creating it now.")
-        os.mkdir(output_path)
-
     # Path to frozen detection graph. This is the actual model that is used for the object detection.
     path_to_model = './model/frozen_inference_graph_face.pb'
-
-    cap = cv2.VideoCapture(input_file)
-    out = None
-    # Specify codec to use when processing the video, eg. mp4v for a .mp4 file
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-
-    start_time = time.time()
 
     detection_graph = tf.Graph()
     with detection_graph.as_default():
@@ -110,7 +89,29 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor, skip
                     tf.config.experimental.set_memory_growth(gpu, True)
             except RuntimeError as e:
                 print(e)
+
+        # TODO: In TensorFlow 2, Sessions have been deprecated in favor of tf.Functions.
+        # However, with the existing implementation, we'd have to exclusively use Tensor objects
+        # for computation. Currently the benefits of this conversion do not seem to be significant,
+        # so this is left for future work.
         with tf.compat.v1.Session(graph=detection_graph) as sess:
+            print("Processing file: {} with confidence threshold {:3.2f}".format(input_file, score_threshold))
+            split_name = os.path.splitext(os.path.basename(input_file))
+            input_file_name = split_name[0]
+            input_file_extension = split_name[1]
+            output_file_name = os.path.join(output_path, '{}_blurred_auto_conf_{:3.2f}_skip{:d}{}'.format(input_file_name, 
+                score_threshold, skip_frames, input_file_extension))
+
+            start_time = time.time()
+
+            # If output directory doesn't exist, create it
+            if not os.path.isdir(output_path):
+                print("Output directory doesn't exist, creating it now.")
+                os.mkdir(output_path)
+            cap = cv2.VideoCapture(input_file)
+            out = None
+            # Specify codec to use when processing the video, eg. mp4v for a .mp4 file
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             count = 0
             last_bounding_boxes = list()
             while True:
@@ -150,15 +151,14 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor, skip
                 # Score is shown on the result image, together with the class label.
                 scores = detection_graph.get_tensor_by_name('detection_scores:0')
                 classes = detection_graph.get_tensor_by_name('detection_classes:0')
-                num_detections = detection_graph.get_tensor_by_name('num_detections:0')
 
                 # Actual detection
-                (boxes, scores, classes, num_detections) = sess.run(
-                    [boxes, scores, classes, num_detections],
+                (boxes, scores, classes) = sess.run(
+                    [boxes, scores, classes],
                     feed_dict={image_tensor: image_np_expanded})
 
                 # Get the final bounding boxes used for blurring
-                boxes, scores, classes = detection_util.get_bounding_boxes(boxes, scores, classes, frame, 
+                boxes, scores = detection_util.get_bounding_boxes(boxes, scores, frame, 
                     score_thres=score_threshold, enlarge_factor=enlarge_factor)
 
                 for i in range(len(boxes)):
@@ -173,19 +173,17 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor, skip
 
                 out.write(frame)
             elapsed_time = time.time() - start_time
-            # Get input video length in s
-            media_info = MediaInfo.parse(input_file)
-            input_length = media_info.tracks[0].duration/1000
+
             # Calculate processing ratio (s processing time/s video)
-            proc_ratio = elapsed_time/input_length
+            proc_ratio = elapsed_time/video_file_util.get_video_length(input_file)
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            print("Blurring video finished in {:.2f}s with processing ratio (s processing time/s video) {:2.4f} for video with dimensions {}x{}".format(elapsed_time, 
-                proc_ratio, w, h))
-            print("Output saved at {}".format(output_file_name))
 
             cap.release()
             out.release()
+            print("Blurring video finished in {:.2f}s with processing ratio (s processing time/s video) {:2.4f} for video with dimensions {}x{}".format(elapsed_time, 
+                proc_ratio, w, h))
+            print("Output saved at {}".format(output_file_name))
 
 def main():
     args = get_arguments()
@@ -223,8 +221,7 @@ def main():
             for threshold in score_thresholds:
                 input_file = os.path.join(input_path, file)
                 # Get total input video length in s
-                media_info = MediaInfo.parse(input_file)
-                input_length += media_info.tracks[0].duration/1000
+                input_length += video_file_util.get_video_length(input_file)
                 # Process the video
                 process_video(input_file, output_path, float(threshold), enlarge_factor, skip_frames)
                 files_produced += 1
