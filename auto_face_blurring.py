@@ -10,7 +10,7 @@ from pymediainfo import MediaInfo
 import argparse
 import time
 import numpy as np
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 import cv2
 import os
 
@@ -90,24 +90,27 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor, skip
     # Specify codec to use when processing the video, eg. mp4v for a .mp4 file
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 
-    # Disable TensorFlow v2 deprecated warning compilation errors
-    # TODO: (this code uses the v1 API and needs to be updated)
-    tf.disable_v2_behavior()
-
     start_time = time.time()
 
     detection_graph = tf.Graph()
     with detection_graph.as_default():
-        od_graph_def = tf.GraphDef()
-        with tf.gfile.GFile(path_to_model, 'rb') as fid:
+        # There is no straightforward way to upgrade from a frozen graph in TensorFlow 2, so
+        # we use the compat library. 
+        od_graph_def = tf.compat.v1.GraphDef()
+        with tf.io.gfile.GFile(path_to_model, 'rb') as fid:
             serialized_graph = fid.read()
             od_graph_def.ParseFromString(serialized_graph)
             tf.import_graph_def(od_graph_def, name='')
 
     with detection_graph.as_default():
-        config = tf.ConfigProto()
-        config.gpu_options.allow_growth = True
-        with tf.Session(graph=detection_graph, config=config) as sess:
+        gpus = tf.config.experimental.list_physical_devices('GPU')
+        if gpus:
+            try:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+            except RuntimeError as e:
+                print(e)
+        with tf.compat.v1.Session(graph=detection_graph) as sess:
             count = 0
             last_bounding_boxes = list()
             while True:
@@ -148,12 +151,16 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor, skip
                 scores = detection_graph.get_tensor_by_name('detection_scores:0')
                 classes = detection_graph.get_tensor_by_name('detection_classes:0')
                 num_detections = detection_graph.get_tensor_by_name('num_detections:0')
+
                 # Actual detection
                 (boxes, scores, classes, num_detections) = sess.run(
                     [boxes, scores, classes, num_detections],
                     feed_dict={image_tensor: image_np_expanded})
+
+                # Get the final bounding boxes used for blurring
                 boxes, scores, classes = detection_util.get_bounding_boxes(boxes, scores, classes, frame, 
                     score_thres=score_threshold, enlarge_factor=enlarge_factor)
+
                 for i in range(len(boxes)):
                     x1 = int(boxes[i][0])
                     y1 = int(boxes[i][1])
