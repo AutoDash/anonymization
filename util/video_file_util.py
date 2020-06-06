@@ -6,6 +6,7 @@
 # pylint: disable=E1101
 
 from pymediainfo import MediaInfo
+import time
 import cv2
 import os
 import numpy as np
@@ -23,9 +24,22 @@ def calculate_proc_ratio(elapsed_time, video_length):
     return elapsed_time/video_length
 
 # Perform the object detection and blurring on a given video file
-def process_video(input_file, input_file_name, output_file_name, sess, skip_frames, block_scaling_factor, 
+def process_video(input_file, output_path, sess, skip_frames, block_scaling_factor, 
     default_num_blocks, detection_graph, score_threshold, enlarge_factor, 
         tensor_name='image_tensor:0', boxes_name='detection_boxes:0', scores_name='detection_scores:0', classes_name='detection_classes:0'):
+    print("Processing file: {} with confidence threshold {:3.2f}".format(input_file, score_threshold))
+    split_name = os.path.splitext(os.path.basename(input_file))
+    input_file_name = split_name[0]
+    input_file_extension = split_name[1]
+    output_file_name = os.path.join(output_path, '{}_blurred_auto_conf_{:3.2f}_skip{:d}{}'.format(input_file_name, 
+        score_threshold, skip_frames, input_file_extension))
+
+    start_time = time.time()
+
+    # If output directory doesn't exist, create it
+    if not os.path.isdir(output_path):
+        print("Output directory doesn't exist, creating it now.")
+        os.mkdir(output_path)
     cap = cv2.VideoCapture(input_file)
     out = None
     # Specify codec to use when processing the video, eg. mp4v for a .mp4 file
@@ -98,7 +112,13 @@ def process_video(input_file, input_file_name, output_file_name, sess, skip_fram
     cap.release()
     out.release()
 
-    return (width, height, video_length)
+    elapsed_time = time.time() - start_time
+
+    proc_ratio = calculate_proc_ratio(elapsed_time, video_length)
+
+    print("Blurring video finished in {:.2f}s with processing ratio (s processing time/s video) {:2.4f} for video with dimensions {}x{}".format(elapsed_time, 
+        proc_ratio, width, height))
+    print("Output saved at {}".format(output_file_name))
 
 def validate_input_files(input_path, accepted_file_extensions, score_thresholds, output_path, enlarge_factor, skip_frames):
     pass

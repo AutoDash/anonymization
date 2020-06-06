@@ -65,7 +65,16 @@ def get_arguments():
 
     return args
 
-def process_video(input_file, output_path, score_threshold, enlarge_factor, skip_frames):
+def main():
+    args = get_arguments()
+    input_path = args.input
+    output_path = args.output
+    score_thresholds = args.score_thresholds.split(",")
+    enlarge_factor = args.enlarge_factor
+    skip_frames = int(args.skip_frames)
+
+    start_time = time.time()
+
     # Path to frozen detection graph. This is the actual model that is used for the object detection.
     path_to_model = './model/frozen_inference_graph_face.pb'
 
@@ -77,80 +86,48 @@ def process_video(input_file, output_path, score_threshold, enlarge_factor, skip
     # for computation. Currently the benefits of this conversion do not seem to be significant,
     # so this is left for future work.
     with tf.compat.v1.Session(graph=detection_graph) as sess:
-        print("Processing file: {} with confidence threshold {:3.2f}".format(input_file, score_threshold))
-        split_name = os.path.splitext(os.path.basename(input_file))
-        input_file_name = split_name[0]
-        input_file_extension = split_name[1]
-        output_file_name = os.path.join(output_path, '{}_blurred_auto_conf_{:3.2f}_skip{:d}{}'.format(input_file_name, 
-            score_threshold, skip_frames, input_file_extension))
+        # Validate input if it's a single file
+        if os.path.isfile(input_path):
+            if input_path.endswith(ACCEPTED_FILE_EXTENSION):
+                for threshold in score_thresholds:
+                    video_file_util.process_video(input_path, output_path,
+                        sess, skip_frames, BLOCK_SCALING_FACTOR, DEFAULT_NUM_BLOCKS, detection_graph, float(threshold),
+                            enlarge_factor, 'image_tensor:0', 'detection_boxes:0', 'detection_scores:0', 'detection_classes:0')
+                exit(0)
+            else:
+                print('Not a valid file.')
+                exit(1)
 
-        start_time = time.time()
-
-        # If output directory doesn't exist, create it
-        if not os.path.isdir(output_path):
-            print("Output directory doesn't exist, creating it now.")
-            os.mkdir(output_path)
-
-        (width, height, video_length) = video_file_util.process_video(input_file, input_file_name, output_file_name,
-            sess, skip_frames, BLOCK_SCALING_FACTOR, DEFAULT_NUM_BLOCKS, detection_graph, score_threshold,
-                enlarge_factor, 'image_tensor:0', 'detection_boxes:0', 'detection_scores:0', 'detection_classes:0')
-
-        elapsed_time = time.time() - start_time
-
-        proc_ratio = video_file_util.calculate_proc_ratio(elapsed_time, video_length)
-
-        print("Blurring video finished in {:.2f}s with processing ratio (s processing time/s video) {:2.4f} for video with dimensions {}x{}".format(elapsed_time, 
-            proc_ratio, width, height))
-        print("Output saved at {}".format(output_file_name))
-
-def main():
-    args = get_arguments()
-    input_path = args.input
-    output_path = args.output
-    score_thresholds = args.score_thresholds.split(",")
-    enlarge_factor = args.enlarge_factor
-    skip_frames = int(args.skip_frames)
-
-    start_time = time.time()
-
-    # Validate input if it's a single file
-    if os.path.isfile(input_path):
-        if input_path.endswith(ACCEPTED_FILE_EXTENSION):
-            for threshold in score_thresholds:
-                process_video(input_path, output_path, float(threshold), enlarge_factor, skip_frames)
-            exit(0)
-        else:
-            print('Not a valid file.')
+        # Process each file in the input directory
+        if not(os.path.isdir(input_path)) or not(os.listdir(input_path)):
+            print('No input files found or invalid directory specified.')
             exit(1)
 
-    # Process each file in the input directory
-    if not(os.path.isdir(input_path)) or not(os.listdir(input_path)):
-        print('No input files found or invalid directory specified.')
-        exit(1)
+        files_processed = 0
+        files_produced = 0
 
-    files_processed = 0
-    files_produced = 0
+        # Get total input video length in s
+        input_length = 0
 
-    # Get total input video length in s
-    input_length = 0
-
-    for file in os.listdir(input_path):
-        if file.endswith(ACCEPTED_FILE_EXTENSION):
-            for threshold in score_thresholds:
-                input_file = os.path.join(input_path, file)
-                # Get total input video length in s
-                input_length += video_file_util.get_video_length(input_file)
-                # Process the video
-                process_video(input_file, output_path, float(threshold), enlarge_factor, skip_frames)
-                files_produced += 1
-            files_processed +=1
+        for file in os.listdir(input_path):
+            if file.endswith(ACCEPTED_FILE_EXTENSION):
+                for threshold in score_thresholds:
+                    input_file = os.path.join(input_path, file)
+                    # Get total input video length in s
+                    input_length += video_file_util.get_video_length(input_file)
+                    # Process the video
+                    video_file_util.process_video(input_file, output_path,
+                        sess, skip_frames, BLOCK_SCALING_FACTOR, DEFAULT_NUM_BLOCKS, detection_graph, float(threshold),
+                            enlarge_factor, 'image_tensor:0', 'detection_boxes:0', 'detection_scores:0', 'detection_classes:0')
+                    files_produced += 1
+                files_processed +=1
 
 
-    elapsed_time = time.time() - start_time
-    proc_ratio = elapsed_time/input_length
-    
-    print("{} files were processed and {} were produced in {:.4f}s with average processing ratio "
-        "(s processing time/s video) {:2.4f}.".format(files_processed, files_produced, elapsed_time, proc_ratio))
+        elapsed_time = time.time() - start_time
+        proc_ratio = elapsed_time/input_length
+        
+        print("{} files were processed and {} were produced in {:.4f}s with average processing ratio "
+            "(s processing time/s video) {:2.4f}.".format(files_processed, files_produced, elapsed_time, proc_ratio))
 
 if __name__ == '__main__':
     main()
