@@ -119,22 +119,3 @@ def process_video(input_file, output_path, sess, skip_frames, block_scaling_fact
     print("Blurring video finished in {:.2f}s with processing ratio (s processing time/s video) {:2.4f} for video with dimensions {}x{}".format(elapsed_time, 
         proc_ratio, width, height))
     print("Output saved at {}".format(output_file_name))
-
-def validate_input_files(input_path, accepted_file_extensions, score_thresholds, output_path, enlarge_factor, skip_frames):
-    pass
-    # TODO: finish this
-    # # Validate input if it's a single file
-    # if os.path.isfile(input_path):
-    #     if input_path.endswith(accepted_file_extensions):
-    #         for threshold in score_thresholds:
-    #             process_video(input_path, output_path, float(threshold), enlarge_factor, skip_frames)
-    #         exit(0)
-    #     else:
-    #         print('Not a valid file.')
-    #         exit(1)
-
-    # # Process each file in the input directory
-    # if not(os.path.isdir(input_path)) or not(os.listdir(input_path)):
-    #     print('No input files found or invalid directory specified.')
-    #     exit(1)
-
