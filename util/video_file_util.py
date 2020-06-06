@@ -8,6 +8,8 @@
 import os
 
 def validate_input_files(input_path, accepted_file_extensions, score_thresholds, output_path, enlarge_factor, skip_frames):
+    pass
+    # TODO: finish this
     # # Validate input if it's a single file
     # if os.path.isfile(input_path):
     #     if input_path.endswith(accepted_file_extensions):
