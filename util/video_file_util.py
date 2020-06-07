@@ -1,6 +1,6 @@
 #!/usr/bin/python
-# Helper functions for validating and working with video files
-
+# Helper functions for validating, procesing and working with video files.
+#
 # -*- coding: utf-8 -*-
 # pylint: disable=C0103
 # pylint: disable=E1101
@@ -10,9 +10,78 @@ import time
 import cv2
 import os
 import numpy as np
+import sys
+from threading import Thread
 
 import util.blurring_util as blurring_util
 import util.detection_util as detection_util
+
+# Import the Queue class from Python 3
+if sys.version_info >= (3, 0):
+	from queue import Queue
+# Otherwise, import the Queue class for Python 2.7
+else:
+	from Queue import Queue
+
+# Buffered video stream adapted from
+# https://www.pyimagesearch.com/2017/02/06/faster-video-file-fps-with-cv2-videocapture-and-opencv/.
+# A wrapper around an openCV VideoStream which processes frames of the stream using a FIFO buffer.
+class BufferdVideoStream:
+
+    def __init__(self, path, queueSize):
+        # Initialize the file video stream along with the boolean
+        # used to indicate if the thread should be stopped or not
+        self.stream = cv2.VideoCapture(path)
+        self.is_stream_stopped = False
+        # Initialize the queue used to store frames read from
+        # the video file
+        self.buffer = Queue(maxsize=queueSize)
+        
+    # Start the stream
+    def start(self):
+        # Start a thread to read frames from the file video stream
+        t = Thread(target=self.update, args=())
+        t.daemon = True
+        t.start()
+        return self
+
+    # Stop the stream from running
+    def stop(self):
+        # Indicate that the thread should be stopped
+        self.stopped = True
+
+    def release(self):
+        self.stream.release()
+
+    # Perform the reading and decoding of video frames
+    def update(self):
+        while True:
+            if self.is_stream_stopped:
+                return
+
+            if not self.buffer.full():
+                (has_frames, frame) = self.stream.read()
+            
+                if not has_frames:
+                    self.stop()
+                    return
+                
+                self.buffer.put(frame)
+
+    # Return the next frame in the buffer
+    def read(self):
+        return self.buffer.get()
+
+    def has_frames(self):
+        return self.buffer.qsize() > 0
+    
+    # Get the width of the frames in the video stream
+    def get_stream_width(self):
+        return int(self.stream.get(cv2.CAP_PROP_FRAME_WIDTH))
+
+    # Get the height of the frames in the video stream
+    def get_stream_height(self):
+        return int(self.stream.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
 # Get input video length in s
 def get_video_length(input_file):
@@ -25,8 +94,9 @@ def calculate_proc_ratio(elapsed_time, video_length):
 
 # Perform the object detection and blurring on a given video file
 def process_video(input_file, output_path, sess, skip_frames, block_scaling_factor, 
-    default_num_blocks, detection_graph, score_threshold, enlarge_factor, 
-        tensor_name='image_tensor:0', boxes_name='detection_boxes:0', scores_name='detection_scores:0', classes_name='detection_classes:0'):
+    default_num_blocks, detection_graph, score_threshold, enlarge_factor, buffer_size,
+        tensor_name='image_tensor:0', boxes_name='detection_boxes:0', scores_name='detection_scores:0', 
+            classes_name='detection_classes:0'):
     print("Processing file: {} with confidence threshold {:3.2f}".format(input_file, score_threshold))
     split_name = os.path.splitext(os.path.basename(input_file))
     input_file_name = split_name[0]
@@ -40,16 +110,18 @@ def process_video(input_file, output_path, sess, skip_frames, block_scaling_fact
     if not os.path.isdir(output_path):
         print("Output directory doesn't exist, creating it now.")
         os.mkdir(output_path)
-    cap = cv2.VideoCapture(input_file)
+    # Start the buffered video stream   
+    cap = BufferdVideoStream(input_file, buffer_size)
+    cap.start()
+    # 100 ms of sleep time, to allow the buffer to fill
+    time.sleep(0.1)
     out = None
     # Specify codec to use when processing the video, eg. mp4v for a .mp4 file
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     count = 0
     last_bounding_boxes = list()
-    while True:
-        ret, frame = cap.read()
-        if ret == 0:
-            break
+    while cap.has_frames():
+        frame = cap.read()
         count += 1
 
         if count % 50 == 0:
@@ -105,8 +177,8 @@ def process_video(input_file, output_path, sess, skip_frames, block_scaling_fact
 
         out.write(frame)
 
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    width = cap.get_stream_width()
+    height = cap.get_stream_height()
     video_length = get_video_length(input_file)
 
     cap.release()
