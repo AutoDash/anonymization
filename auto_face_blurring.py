@@ -1,8 +1,9 @@
 #!/usr/bin/python
-# This module automatically applies a blurring mask to faces from a given input set of videos using a MobileNet SSD
-# an efficient convolutional neural network based model, for facial detection.
+# This module automatically applies a blurring mask to faces from a given input set of videos using a
+# MobileNet SSD an efficient convolutional neural network based model, for facial detection.
 #
-# Facial detection model obtained from (and code adapted from): https://github.com/yeephycho/tensorflow-face-detection
+# Facial detection model obtained from (and code adapted from):
+# https://github.com/yeephycho/tensorflow-face-detection
 # -*- coding: utf-8 -*-
 # pylint: disable=C0103
 # pylint: disable=E1101
@@ -11,6 +12,8 @@ import time
 import numpy as np
 import tensorflow as tf
 import os
+
+from threading import Thread
 
 import util.video_file_util as video_file_util
 import util.detection_util as detection_util
@@ -29,12 +32,15 @@ class AutoFaceBlurrer:
     DEFAULT_NUM_BLOCKS = 3
     BLOCK_SCALING_FACTOR = 0.03
 
-    def __init__(self, input, output, score_thresholds, enlarge_factor, skip_frames):
+    DEFAULT_BUFFER_SIZE = 512
+
+    def __init__(self, input, output, score_thresholds, enlarge_factor, skip_frames, frame_buffer_size):
         self.input_path = input
         self.output_path = output
         self.score_thresholds = score_thresholds.split(",")
         self.enlarge_factor = enlarge_factor
         self.skip_frames = int(skip_frames)
+        self.frame_buffer_size = int(frame_buffer_size)
 
     def run(self):
         start_time = time.time()
@@ -56,7 +62,7 @@ class AutoFaceBlurrer:
                     for threshold in self.score_thresholds:
                         video_file_util.process_video(self.input_path, self.output_path,
                             sess, self.skip_frames, self.BLOCK_SCALING_FACTOR, self.DEFAULT_NUM_BLOCKS, 
-                                detection_graph, float(threshold), self.enlarge_factor, 
+                                detection_graph, float(threshold), self.enlarge_factor, self.frame_buffer_size,
                                     'image_tensor:0', 'detection_boxes:0', 'detection_scores:0', 
                                         'detection_classes:0')
                     exit(0)
@@ -83,8 +89,8 @@ class AutoFaceBlurrer:
                         input_length += video_file_util.get_video_length(input_file)
                         # Process the video
                         video_file_util.process_video(input_file, self.output_path,
-                            sess, self.skip_frames, self.BLOCK_SCALING_FACTOR, self.DEFAULT_NUM_BLOCKS, 
-                                detection_graph, float(threshold), self.enlarge_factor, 
+                            sess, self.skip_frames, self.BLOCK_SCALING_FACTOR, self.DEFAULT_NUM_BLOCKS,
+                                detection_graph, float(threshold), self.enlarge_factor, self.frame_buffer_size,
                                     'image_tensor:0', 'detection_boxes:0', 
                                         'detection_scores:0', 'detection_classes:0')
                         files_produced += 1
@@ -129,6 +135,10 @@ def get_arguments():
                                 "This will help speed up the video processing. For every frame that is skipped, the blurring mask for the last calculated "
                                 "bounding boxes will remain. "
                                 "Default: {}".format(AutoFaceBlurrer.DEFAULT_SKIP_FRAMES))
+        parser.add_argument("--frame-buffer-size", type=float, default=AutoFaceBlurrer.DEFAULT_SKIP_FRAMES,
+                    help="The number of frames to hold in the FIFO buffer which helps optimizes the processing"
+                        "of videos in the program. A higher number requires more memory. "
+                        "Default: {}".format(AutoFaceBlurrer.DEFAULT_BUFFER_SIZE))
 
         args = parser.parse_args()
 
@@ -137,7 +147,7 @@ def get_arguments():
 def main():
     args = get_arguments()
     blurrer = AutoFaceBlurrer(args.input, args.output, 
-        args.score_thresholds, args.enlarge_factor, args.skip_frames)
+        args.score_thresholds, args.enlarge_factor, args.skip_frames, args.frame_buffer_size)
     blurrer.run()
 
 

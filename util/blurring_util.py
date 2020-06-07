@@ -1,6 +1,8 @@
 #!/usr/bin/python
 # Helper functions for creating blur masks on image frames.
-
+# Blurring algorithms obtained from
+# https://www.pyimagesearch.com/2020/04/06/blur-and-anonymize-faces-with-opencv-and-python/
+#
 # -*- coding: utf-8 -*-
 # pylint: disable=C0103
 # pylint: disable=E1101
@@ -62,7 +64,8 @@ def calculate_num_blocks_for_pixelated_blur(x1, y1, x2, y2, block_scaling_factor
 def create_and_merge_pixelated_blur_mask(frame, x1, y1, x2, y2, block_scaling_factor, default_num_blocks):
     face = frame[y1:y2, x1:x2]
     # Apply a pixelated blur on the object
-    face = anonymize_face_pixelate(face, calculate_num_blocks_for_pixelated_blur(x1, y1, x2, y2, block_scaling_factor, default_num_blocks))
+    face = anonymize_face_pixelate(face, calculate_num_blocks_for_pixelated_blur(x1, y1, x2, y2, 
+		block_scaling_factor, default_num_blocks))
     # Merge the blurred object to our final image
     frame[y1:y2, x1:x2] = face
     return frame
