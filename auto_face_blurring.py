@@ -34,8 +34,8 @@ class AutoFaceBlurrer:
     def __init__(self, input, output, score_thresholds, enlarge_factor, skip_frames, frame_buffer_size):
         self.input_path = input
         self.output_path = output
-        self.score_thresholds = score_thresholds.split(",")
-        self.enlarge_factor = enlarge_factor
+        self.score_thresholds = [float(s) for s in score_thresholds.split(",")]
+        self.enlarge_factor = float(enlarge_factor)
         self.skip_frames = int(skip_frames)
         self.frame_buffer_size = int(frame_buffer_size)
 
