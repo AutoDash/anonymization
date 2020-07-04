@@ -1,6 +1,6 @@
 #!/usr/bin/python
 # This module automatically applies a blurring mask to faces from a given input set of videos using a
-# MobileNet SSD an efficient convolutional neural network based model, for facial detection.
+# MobileNet SSD, an efficient convolutional neural network based model, for facial detection.
 #
 # Facial detection model obtained from (and code adapted from):
 # https://github.com/yeephycho/tensorflow-face-detection
@@ -9,13 +9,9 @@
 # pylint: disable=E1101
 import argparse
 import time
-import numpy as np
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
-
-from threading import Thread
-
 import util.video_file_util as video_file_util
 import util.detection_util as detection_util
 
