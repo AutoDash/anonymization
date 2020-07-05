@@ -14,8 +14,8 @@ import sys
 import shutil
 from threading import Thread
 
-import util.blurring_util as blurring_util
-import util.detection_util as detection_util
+import lib.anonymization.util.blurring_util as blurring_util
+import lib.anonymization.util.detection_util as detection_util
 
 # Import the Queue class from Python 3
 if sys.version_info >= (3, 0):

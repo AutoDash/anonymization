@@ -12,8 +12,8 @@ import time
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
-import util.video_file_util as video_file_util
-import util.detection_util as detection_util
+import lib.anonymization.util.video_file_util as video_file_util
+import lib.anonymization.util.detection_util as detection_util
 
 __version__ = '1.0'
 
