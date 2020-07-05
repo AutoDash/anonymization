@@ -31,13 +31,16 @@ class AutoFaceBlurrer:
 
     DEFAULT_BUFFER_SIZE = 512
 
-    def __init__(self, input, output, score_thresholds, enlarge_factor, skip_frames, frame_buffer_size):
+    DEFAULT_OVERWRITE = False
+
+    def __init__(self, input, output, score_thresholds, enlarge_factor, skip_frames, frame_buffer_size, overwrite):
         self.input_path = input
         self.output_path = output
-        self.score_thresholds = score_thresholds.split(",")
-        self.enlarge_factor = enlarge_factor
+        self.score_thresholds = [float(s) for s in score_thresholds.split(",")]
+        self.enlarge_factor = float(enlarge_factor)
         self.skip_frames = int(skip_frames)
         self.frame_buffer_size = int(frame_buffer_size)
+        self.overwrite = overwrite
 
     def run(self):
         start_time = time.time()
@@ -60,7 +63,7 @@ class AutoFaceBlurrer:
                         video_file_util.process_video(self.input_path, self.output_path,
                             sess, self.skip_frames, self.BLOCK_SCALING_FACTOR, self.DEFAULT_NUM_BLOCKS, 
                                 detection_graph, float(threshold), self.enlarge_factor, self.frame_buffer_size,
-                                    'image_tensor:0', 'detection_boxes:0', 'detection_scores:0', 
+                                    self.overwrite, 'image_tensor:0', 'detection_boxes:0', 'detection_scores:0',
                                         'detection_classes:0')
                     exit(0)
                 else:
@@ -88,7 +91,7 @@ class AutoFaceBlurrer:
                         video_file_util.process_video(input_file, self.output_path,
                             sess, self.skip_frames, self.BLOCK_SCALING_FACTOR, self.DEFAULT_NUM_BLOCKS,
                                 detection_graph, float(threshold), self.enlarge_factor, self.frame_buffer_size,
-                                    'image_tensor:0', 'detection_boxes:0', 
+                                    self.overwrite, 'image_tensor:0', 'detection_boxes:0',
                                         'detection_scores:0', 'detection_classes:0')
                         files_produced += 1
                     files_processed +=1
@@ -136,6 +139,9 @@ def get_arguments():
                     help="The number of frames to hold in the FIFO buffer which helps optimizes the processing"
                         "of videos in the program. A higher number requires more memory. "
                         "Default: {}".format(AutoFaceBlurrer.DEFAULT_BUFFER_SIZE))
+        parser.add_argument("--overwrite", type=bool, default=AutoFaceBlurrer.DEFAULT_OVERWRITE,
+                    help="When True, the input file will be overwritten with the output. "
+                        "Default: {}".format(AutoFaceBlurrer.DEFAULT_OVERWRITE))
 
         args = parser.parse_args()
 
@@ -144,7 +150,7 @@ def get_arguments():
 def main():
     args = get_arguments()
     blurrer = AutoFaceBlurrer(args.input, args.output, 
-        args.score_thresholds, args.enlarge_factor, args.skip_frames, args.frame_buffer_size)
+        args.score_thresholds, args.enlarge_factor, args.skip_frames, args.frame_buffer_size, args.overwrite)
     blurrer.run()
 
 
