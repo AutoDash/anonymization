@@ -46,7 +46,7 @@ class AutoFaceBlurrer:
         start_time = time.time()
 
         # Path to frozen detection graph. This is the actual model that is used for the object detection.
-        path_to_model = './model/frozen_inference_graph_face.pb'
+        path_to_model = os.path.join(os.getcwd(), "lib/anonymization/model/frozen_inference_graph_face.pb")
 
         detection_graph = detection_util.load_detection_graph(path_to_model)
         detection_util.set_memory_growth(detection_graph)
