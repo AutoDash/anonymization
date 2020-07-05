@@ -59,13 +59,25 @@ class AutoFaceBlurrer:
             # Validate input if it's a single file
             if os.path.isfile(self.input_path):
                 if self.input_path.endswith(self.ACCEPTED_FILE_EXTENSION):
+                    files_produced = 0
+                    # Get total input video length in s
+                    input_length = 0
+
                     for threshold in self.score_thresholds:
                         video_file_util.process_video(self.input_path, self.output_path,
                             sess, self.skip_frames, self.BLOCK_SCALING_FACTOR, self.DEFAULT_NUM_BLOCKS, 
                                 detection_graph, float(threshold), self.enlarge_factor, self.frame_buffer_size,
                                     self.overwrite, 'image_tensor:0', 'detection_boxes:0', 'detection_scores:0',
                                         'detection_classes:0')
-                    exit(0)
+                        files_produced += 1
+                        input_length += video_file_util.get_video_length(self.input_path)
+
+                    elapsed_time = time.time() - start_time
+                    proc_ratio = elapsed_time / input_length
+                    print("1 files was processed and {} were produced in {:.4f}s with average processing ratio "
+                          "(s processing time/s video) {:2.4f}.".format(files_produced, elapsed_time,
+                                                                        proc_ratio))
+                    return
                 else:
                     print('Not a valid file.')
                     exit(1)
